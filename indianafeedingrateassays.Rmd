@@ -1,0 +1,72 @@
+---
+title: "Indiana Feeding Rate Assays"
+author: "Meghan Duffy"
+date: "October 27, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Does feeding rate differ before and after epidemics?
+
+Data collection for this project led by Katie Hunsberger (technician in Duffy Lab), using clones sent from Spencer Hall's lab in Indiana. Data analysis led by Meghan Duffy (duffymeg@umich.edu)
+
+# Load libraries and data, do quick check of data
+```{r,import,message=FALSE,echo=FALSE}
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+
+feedingdata <- read.csv("indianafeedingrateassays_withcontrols.csv", na.strings=".")
+
+```
+Right now, data sheet just has Island data in it. Will need to update this with rest of data, but starting with this as a trial.
+
+```{r,plotalldata,echo=FALSE}
+ggplot(data=feedingdata,
+       mapping=aes(x=CloneSubline,y=RFU,
+                   color=Lake))+
+  geom_point(aes(color=Lake)) +
+  theme_bw() 
+```
+
+## Need to deal with drift in fluorometer data
+The fluorometer drifts over time. We quantify this by running controls periodically. We then need to factor out this drift to determine how the baseline RFUs for an ungrazed tube shifts over time. 
+
+First, let's look at what the data look like:
+```{r,plotcontroldata,echo=FALSE}
+controls <- subset(feedingdata,CloneSubline=="Control")
+
+as.factor(controls$Block)
+
+ggplot(data=controls,
+       mapping=aes(x=Rep,y=RFU,
+                   color=Block))+
+  geom_point(aes(color=Block)) +
+  theme_bw() 
+
+```
+
+# First attempt at correcting for drift
+Calculate regressions for different blocks
+```{r,block1regression,echo=FALSE}
+controlblock1 <- subset(controls,Block=="1")
+
+block1reg <- lm(RFU ~ order, data=controlblock1)
+summary(block1reg)
+```
+
+For block 1, predicted control RFU = 7532.0034-9.2394*order
+
+```{r,block2regression,echo=FALSE}
+controlblock2 <- subset(controls,Block=="2")
+
+block2reg <- lm(RFU ~ order, data=controlblock2)
+summary(block2reg)
+```
+
+For block 2, predicted control RFU = 7329.39-10.72*order
+
+I could manually go in and try to create a new variable with those regressions, but I haven't figured that out yet. And surely there's a more elegant way to do this! I just haven't figured it out yet. (Eventually, the dataset will have many more blocks, and will include data for different lakes and time periods.) The basic thing I want to do is to split the data up by block (and, later when all the data are included, lake, time period, and block) and then have R create a new "predictedcontrolRFU" variable that uses the regression for each time block.
