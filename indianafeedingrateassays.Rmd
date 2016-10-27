@@ -70,3 +70,25 @@ summary(block2reg)
 For block 2, predicted control RFU = 7329.39-10.72*order
 
 I could manually go in and try to create a new variable with those regressions, but I haven't figured that out yet. And surely there's a more elegant way to do this! I just haven't figured it out yet. (Eventually, the dataset will have many more blocks, and will include data for different lakes and time periods.) The basic thing I want to do is to split the data up by block (and, later when all the data are included, lake, time period, and block) and then have R create a new "predictedcontrolRFU" variable that uses the regression for each time block.
+
+```{r correct-for-drift}
+# modelled after examples by Jenny Bryan at
+# http://stat545.com/block023_dplyr-do.html
+lin_fit <- function(dat) {
+  the_fit <- lm(RFU ~ order, dat)
+  setNames(data.frame(t(coef(the_fit))), c("intercept", "slope"))
+}
+
+# test new function
+# lin_fit(controls %>% filter(Block == 1))
+
+fits_df <- controls %>%
+  group_by(Block) %>% 
+  do(lin_fit(.))
+fits_df
+
+controls %>%
+  left_join(fits_df) %>%
+  mutate(predictedControlRFU = intercept - slope * order)
+```
+
