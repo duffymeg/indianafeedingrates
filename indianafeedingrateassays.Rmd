@@ -13,101 +13,32 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", error = TRUE)
 
 Data collection for this project led by Katie Hunsberger (technician in Duffy Lab), using clones sent from Spencer Hall's lab in Indiana. Data analysis led by Meghan Duffy (duffymeg@umich.edu)
 
-# Load libraries and data, do quick check of data
-```{r,import,message=FALSE,echo=FALSE}
+```{r,load libraries,message=FALSE,echo=FALSE}
 library(ggplot2)
 library(dplyr)
 library(cowplot)
-
-feedingdata <- read.csv("indianafeedingrateassays_withcontrols.csv", na.strings=".")
-str(feedingdata)
 ```
 Right now, data sheet just has Island data in it. Will need to update this with rest of data, but starting with this as a trial.
 
-```{r,plotalldata,echo=FALSE}
-ggplot(data=feedingdata,
-       mapping=aes(x=CloneSubline,y=RFU,
-                   color=Lake))+
-  geom_point(aes(color=Lake)) +
-  theme_bw() 
-```
+Note about data: The fluorometer drifts over time. We quantify this by running controls periodically. We then need to factor out this drift to determine how the baseline RFUs for an ungrazed tube shifts over time. 
 
-## Need to deal with drift in fluorometer data
-The fluorometer drifts over time. We quantify this by running controls periodically. We then need to factor out this drift to determine how the baseline RFUs for an ungrazed tube shifts over time. 
-
-First, let's look at what the data look like:
-```{r,plotcontroldata,echo=FALSE}
-controls <- subset(feedingdata,CloneSubline=="Control")
-
-as.factor(controls$Block)
-
-ggplot(data=controls,
-       mapping=aes(x=Rep,y=RFU,
-                   color=Block))+
-  geom_point(aes(color=Block)) +
-  theme_bw() 
-
-```
-
-# First attempt at correcting for drift
-Calculate regressions for different blocks
-```{r,block1regression,echo=FALSE}
-controlblock1 <- subset(controls,Block=="1")
-
-block1reg <- lm(RFU ~ order, data=controlblock1)
-summary(block1reg)
-```
-
-For block 1, predicted control RFU = 7532.0034-9.2394*order
-
-```{r,block2regression,echo=FALSE}
-controlblock2 <- subset(controls,Block=="2")
-
-block2reg <- lm(RFU ~ order, data=controlblock2)
-summary(block2reg)
-```
-
-For block 2, predicted control RFU = 7329.39-10.72*order
-
-I could manually go in and try to create a new variable with those regressions, but I haven't figured that out yet. And surely there's a more elegant way to do this! I just haven't figured it out yet. (Eventually, the dataset will have many more blocks, and will include data for different lakes and time periods.) The basic thing I want to do is to split the data up by block (and, later when all the data are included, lake, time period, and block) and then have R create a new "predictedcontrolRFU" variable that uses the regression for each time block.
-
-```{r correct-for-drift}
-# modelled after examples by Jenny Bryan at
-# http://stat545.com/block023_dplyr-do.html
-lin_fit <- function(dat) {
-  the_fit <- lm(RFU ~ order, dat)
-  setNames(data.frame(t(coef(the_fit))), c("intercept", "slope"))
-}
-
-# test new function
-lin_fit(controls %>% filter(Block == 1))
-
-fits_df <- controls %>%
-  group_by(Block) %>% 
-  do(lin_fit(.))
-fits_df
-
-controls %>%
-  left_join(fits_df) %>%
-  mutate(predictedControlRFU = intercept - slope * order)
-```
-
-# Jenny proposal
+# Jenny Bryan's (elegant!) proposal for dealing with fluorometer drift issue
 
 Read data in.
 
-```{r}
+```{r, load data}
 df <- read.csv("indianafeedingrateassays_withcontrols.csv", na.strings = ".")
 df$Block <- factor(df$Block)
 head(df)
+str(df)
 ```
 
 For the controls only, plot RFU against order and color by Block. Add a fitted line for each Block.
 
-```{r}
+```{r, plot controls}
 df %>%
   filter(CloneSubline == "Control") %>% 
-  ggplot(aes(x = Rep, y = RFU, color = Block)) +
+  ggplot(aes(x = order, y = RFU, color = Block)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   theme_bw() 
@@ -115,16 +46,78 @@ df %>%
 
 Regress RFU on order within Block, for the controls. Eyeball-o-metrically check the intercept and slope against the plot.
 
-```{r}
+```{r, regression of controls}
 control_fit <- lm(RFU ~ Block/order - 1, data = df,
                   subset = CloneSubline == "Control")
 summary(control_fit)
 ```
 
-Add a variable into `df` for the predicted RFU of a control tube (is this what you want? so you can subtract this from observed RFU?).
+Add a variable into `df` for the predicted RFU of a control tube; this tells us what RFUs we'd expect if there was no Daphnia in a tube (or if the Daphnia didn't eat anything)
 
-```{r}
+```{r, calculate predicted control RFUs}
 df$predictedControlRFU <-
   predict(control_fit, newdata = df[c("order", "Block")])
 head(df)
 ```
+
+Now use that to calculate the clearance rate (which we also call feeding rate, because "clearance" has a different meaning to disease ecologists, and so can be a confusing term). Also need to know that the assays were run for 3 hours (0.125 days) and in 15 mL (0.015 L) water.
+
+```{r, calculate clearance rate}
+df <-
+  mutate(df, CR = log(predictedControlRFU/RFU)*0.015*0.125)
+head(df)
+```
+
+Now calculate the size-specific clearance rate
+```{r, calculate size-specific clearance rate}
+df <-
+  mutate(df, SSCR = CR/(length_mm)^2)
+head(df)
+```
+
+Check to make sure there don't seem to be major trends in the clearance rates over the course of the assay
+```{r, plot clearance rate}
+df %>%
+  ggplot(aes(x = order, y = CR, color = Block)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_bw() 
+```
+
+Hrm, something looks not right with block 1. Will need to look into that more. First check: is something going wrong with the predictions? Testing this by subsetting the data so there's just one block.
+
+```{r, subset to just block 1}
+testdf <- read.csv("indianafeedingrateassays_withcontrols.csv", na.strings = ".")
+testdf$Block <- factor(testdf$Block)
+testdf <- subset(testdf, Block == 1)
+tail(testdf)
+```
+
+```{r, regression of block 1 controls}
+control_fit2 <- lm(RFU ~ order, data = testdf,
+                  subset = CloneSubline == "Control")
+summary(control_fit2)
+```
+
+```{r, calculate predicted control RFUs for just block 1}
+testdf$predictedControlRFU <-
+  predict(control_fit2, newdata = testdf[c("order", "Block")])
+head(testdf)
+```
+
+```{r, calculate clearance rate for just block 1}
+testdf <-
+  mutate(testdf, CR = log(predictedControlRFU/RFU)*0.015*0.125)
+head(testdf)
+```
+
+```{r, plot clearance rate for just block 1}
+testdf %>%
+  ggplot(aes(x = order, y = CR)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_bw() 
+```
+
+Okay. It's not just a problem with calculating predicted RFUs. Will need to look into this more later.
+
