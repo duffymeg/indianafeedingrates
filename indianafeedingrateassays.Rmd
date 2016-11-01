@@ -2,11 +2,11 @@
 title: "Indiana Feeding Rate Assays"
 author: "Meghan Duffy"
 date: "October 27, 2016"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", error = TRUE)
 ```
 
 ## Does feeding rate differ before and after epidemics?
@@ -20,7 +20,7 @@ library(dplyr)
 library(cowplot)
 
 feedingdata <- read.csv("indianafeedingrateassays_withcontrols.csv", na.strings=".")
-
+str(feedingdata)
 ```
 Right now, data sheet just has Island data in it. Will need to update this with rest of data, but starting with this as a trial.
 
@@ -80,7 +80,7 @@ lin_fit <- function(dat) {
 }
 
 # test new function
-# lin_fit(controls %>% filter(Block == 1))
+lin_fit(controls %>% filter(Block == 1))
 
 fits_df <- controls %>%
   group_by(Block) %>% 
@@ -92,3 +92,39 @@ controls %>%
   mutate(predictedControlRFU = intercept - slope * order)
 ```
 
+# Jenny proposal
+
+Read data in.
+
+```{r}
+df <- read.csv("indianafeedingrateassays_withcontrols.csv", na.strings = ".")
+df$Block <- factor(df$Block)
+head(df)
+```
+
+For the controls only, plot RFU against order and color by Block. Add a fitted line for each Block.
+
+```{r}
+df %>%
+  filter(CloneSubline == "Control") %>% 
+  ggplot(aes(x = Rep, y = RFU, color = Block)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_bw() 
+```
+
+Regress RFU on order within Block, for the controls. Eyeball-o-metrically check the intercept and slope against the plot.
+
+```{r}
+control_fit <- lm(RFU ~ Block/order - 1, data = df,
+                  subset = CloneSubline == "Control")
+summary(control_fit)
+```
+
+Add a variable into `df` for the predicted RFU of a control tube (is this what you want? so you can subtract this from observed RFU?).
+
+```{r}
+df$predictedControlRFU <-
+  predict(control_fit, newdata = df[c("order", "Block")])
+head(df)
+```
