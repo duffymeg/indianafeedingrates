@@ -2,14 +2,14 @@
 title: "Indiana Feeding Rate Assays"
 author: "Meghan Duffy"
 date: "October 27, 2016"
-output: github_document
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>", error = TRUE)
 ```
 
-## Does feeding rate differ before and after epidemics?
+# Does feeding rate differ before and after epidemics?
 
 Data collection for this project led by Katie Hunsberger (technician in Duffy Lab), using clones sent from Spencer Hall's lab in Indiana. Data analysis led by Meghan Duffy (duffymeg@umich.edu)
 
@@ -17,12 +17,13 @@ Data collection for this project led by Katie Hunsberger (technician in Duffy La
 library(ggplot2)
 library(dplyr)
 library(cowplot)
+library(stringr)
 ```
 Right now, data sheet just has Island data in it. Will need to update this with rest of data, but starting with this as a trial.
 
 Note about data: The fluorometer drifts over time. We quantify this by running controls periodically. We then need to factor out this drift to determine how the baseline RFUs for an ungrazed tube shifts over time. 
 
-# Jenny Bryan's (elegant!) proposal for dealing with fluorometer drift issue
+## Jenny Bryan's (elegant!) proposal for dealing with fluorometer drift issue
 
 Read data in.
 
@@ -119,5 +120,102 @@ testdf %>%
   theme_bw() 
 ```
 
-Okay. It's not just a problem with calculating predicted RFUs. Will need to look into this more later.
+Okay. It's not just a problem with calculating predicted RFUs. Will need to figure out whether we should do anything about this later. The first step might be seeing if it happened in the blocks for other lakes, too.
 
+##Looking at data for different genotypes and sublines
+
+First step: separate clone and subline (which are currently merged into the "CloneSubline" variable)
+
+```{r, separate clone and subline}
+dfnc <- subset(df,CloneSubline != "Control")
+dfnc$CloneSubline <- as.character(dfnc$CloneSubline)
+dfnc$Subline <- str_sub(dfnc$CloneSubline,-1,length(dfnc$CloneSubline))
+dfnc$Clone <- substr(dfnc$CloneSubline, 1, nchar(dfnc$CloneSubline)-1)
+dfnc$Subline
+dfnc$Clone
+```
+
+Then, figure out the mean among the different replicates for each clone*subline combination
+Seeing if I can figure out how to graph it first
+
+```{r, plotting data for different clone*subline combinations}
+ggplot(dfnc,aes(x=Clone,y=SSCR)) +
+  geom_point(aes(color=prepost,shape=Subline))
+```
+
+Calculating one value for each clone; first, calculating a mean for each clone-subline combination, then averaging those two values to get one for each clone.
+```{r, mean for each clone}
+meanbysublineSSCR <- dfnc %>%
+  subset(!is.na(SSCR)) %>%
+  group_by(Clone,Subline,prepost) %>%
+  summarise(avg=mean(SSCR))
+
+meanbycloneSSCR <- meanbysublineSSCR %>%
+  group_by(Clone,prepost) %>%
+  summarise(avg=mean(avg))
+
+meanbysublineCR <- dfnc %>%
+  subset(!is.na(CR)) %>%
+  group_by(Clone,Subline,prepost) %>%
+  summarise(avg=mean(CR))
+
+meanbycloneCR <- meanbysublineCR %>%
+  group_by(Clone,prepost) %>%
+  summarise(avg=mean(avg))
+
+meanbysublinelength <- dfnc %>%
+  subset(!is.na(length_mm)) %>%
+  group_by(Clone,Subline,prepost) %>%
+  summarise(avg=mean(length_mm))
+
+meanbyclonelength <- meanbysublinelength %>%
+  group_by(Clone,prepost) %>%
+  summarise(avg=mean(avg))
+```
+
+Plotting the means
+```{r, plots of mean SSCR and length for different clones}
+ggplot(meanbycloneSSCR,aes(x=prepost,y=avg)) +
+  geom_point() +
+  ylab("Size-specific clearance rate") +
+  ggtitle("Mean Size-specific Clearance Rate; each point is one genotype") +
+  scale_x_discrete(limits=c("pre", "post", "std")) +
+  xlab("Pre- vs. post-epidemic")
+
+ggplot(meanbycloneSSCR,aes(x=prepost,y=avg)) +
+  geom_boxplot() +
+  ylab("Size-specific clearance rate") +
+  ggtitle("Mean Size-specific Clearance Rate (box plot shows averages across genotypes)") +
+  scale_x_discrete(limits=c("pre", "post", "std")) +
+  xlab("Pre- vs. post-epidemic")
+
+ggplot(meanbycloneCR,aes(x=prepost,y=avg)) +
+  geom_point() +
+  ylab("Clearance rate") +
+  ggtitle("Mean Clearance Rate; each point is one genotype") +
+  scale_x_discrete(limits=c("pre", "post", "std")) +
+  xlab("Pre- vs. post-epidemic")
+
+ggplot(meanbycloneCR,aes(x=prepost,y=avg)) +
+  geom_boxplot() +
+  ylab("Clearance rate") +
+  ggtitle("Mean Clearance Rate (box plot shows averages across genotypes)") +
+  scale_x_discrete(limits=c("pre", "post", "std")) +
+  xlab("Pre- vs. post-epidemic")
+
+ggplot(meanbyclonelength,aes(x=prepost,y=avg)) +
+  geom_point() +
+  ylab("Length (mm)") +
+  ggtitle("Mean length; each point is one genotype") +
+  scale_x_discrete(limits=c("pre", "post", "std")) +
+  xlab("Pre- vs. post-epidemic")
+
+ggplot(meanbyclonelength,aes(x=prepost,y=avg)) +
+  geom_boxplot() +
+  ylab("Length (mm)") +
+  ggtitle("Mean length (box plot shows averages across genotypes)") +
+  scale_x_discrete(limits=c("pre", "post", "std")) +
+  xlab("Pre- vs. post-epidemic")
+```
+
+To do next: analyze evolution, looking for changes in mean and/or variance
